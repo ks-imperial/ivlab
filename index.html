@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IV Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0b7285">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="IV Lab">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#check" aria-label="IV Lab home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="brand-name">IV Lab</span>
+    </a>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#check" data-tab="check">Check</a>
+      <a href="#rankings" data-tab="rankings">Rankings</a>
+      <a href="#raids" data-tab="raids">Raids</a>
+      <a href="#box" data-tab="box">Box <span class="count" id="box-count"></span></a>
+      <a href="#import" data-tab="import">Import</a>
+    </nav>
+    <div class="top-tools">
+      <label class="visually-hidden" for="user-select">Trainer</label>
+      <select id="user-select" class="user-select" title="Whose box"></select>
+      <button class="icon-btn" id="settings-btn" aria-expanded="false" aria-controls="settings" title="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm8.6-2.3.1-1.2-.1-1.2 2-1.6-2-3.4-2.4 1a8 8 0 0 0-2-1.2L15.8 3h-3.9l-.4 2.6a8 8 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6-.1 1.2.1 1.2-2 1.6 2 3.4 2.4-1a8 8 0 0 0 2 1.2l.4 2.6h3.9l.4-2.6a8 8 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6Z"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="settings" id="settings" hidden>
+    <div class="settings-inner">
+      <div class="field">
+        <span class="label">Max level, 500 / 1500 / 2500</span>
+        <div class="seg" id="set-lv-capped" role="radiogroup" aria-label="Max level in capped leagues">
+          <button data-v="50">50</button><button data-v="51">51 Best Buddy</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Max level, Master &amp; raids</span>
+        <div class="seg" id="set-lv-master" role="radiogroup" aria-label="Max level in Master League">
+          <button data-v="50">50</button><button data-v="51">51 Best Buddy</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Raid metric</span>
+        <div class="seg" id="set-metric" role="radiogroup" aria-label="Raid metric">
+          <button data-v="edps">eDPS</button><button data-v="er">ER</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Raid bar for the summary</span>
+        <div class="inline-form">
+          <label class="visually-hidden" for="set-min-edps">Minimum eDPS</label>
+          <input id="set-min-edps" type="number" step="0.5" min="0" inputmode="decimal" title="eDPS at Lv40 15/15/15">
+          <span class="fine" style="align-self:center">eDPS or</span>
+          <label class="visually-hidden" for="set-min-er">Minimum ER</label>
+          <input id="set-min-er" type="number" step="1" min="0" inputmode="decimal" title="ER at Lv40 15/15/15">
+          <span class="fine" style="align-self:center">ER</span>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Box labels need</span>
+        <div class="pct-row">
+          <label class="pct-field" for="set-iv-raid"><span>Raid</span><input id="set-iv-raid" class="pct-in" type="number" step="1" min="0" max="100" inputmode="numeric"><span>%</span></label>
+          <label class="pct-field" for="set-iv-raid-sh"><span>Shadow raid</span><input id="set-iv-raid-sh" class="pct-in" type="number" step="1" min="0" max="100" inputmode="numeric"><span>%</span></label>
+          <label class="pct-field" for="set-iv-pvp"><span>PvP &amp; Master</span><input id="set-iv-pvp" class="pct-in" type="number" step="1" min="0" max="100" inputmode="numeric"><span>%</span></label>
+        </div>
+        <span class="fine">Raid: Master League IV % · PvP: league IV %</span>
+      </div>
+      <div class="field user-admin">
+        <span class="label">Trainers</span>
+        <form id="add-user-form" class="inline-form">
+          <label class="visually-hidden" for="new-user">New trainer name</label>
+          <input id="new-user" maxlength="16" placeholder="New trainer">
+          <button type="submit" class="btn">Add</button>
+        </form>
+      </div>
+      <p class="fine" id="data-meta"></p>
+      <p class="fine" id="storage-meta"></p>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="panel banner" id="install-hint" hidden>
+    <span><b>Install IV Lab on your iPhone:</b> in Safari tap <b>Share</b> (the square with an arrow), then <b>Add to Home Screen</b>. The installed app opens full screen, works offline, and keeps its box separate from Safari's website data. Still back up from the Box tab now and then.</span>
+    <button class="btn small" id="install-hint-close">Got it</button>
+  </div>
+  <!-- CHECK -->
+  <section class="view" id="view-check" aria-labelledby="h-check">
+    <div class="check-layout">
+      <form class="panel input-panel" id="check-form" autocomplete="off">
+        <h1 id="h-check" class="panel-title">Check a Pokémon</h1>
+        <div class="field">
+          <label class="label" for="check-poke">Pokémon</label>
+          <div class="combo" data-combo="check"><input id="check-poke" class="combo-input" role="combobox" aria-expanded="false" aria-autocomplete="list" placeholder="Name or dex number"><ul class="combo-list" role="listbox" hidden></ul></div>
+        </div>
+        <div class="field">
+          <span class="label">Origin</span>
+          <div class="seg" id="check-origin" role="radiogroup" aria-label="Origin">
+            <button type="button" data-v="normal">Normal</button><button type="button" data-v="shadow">Shadow</button><button type="button" data-v="purified">Purified</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="label-row"><span class="label">IVs</span><span class="iv-sum" id="iv-sum"></span></div>
+          <div class="appraisal" id="appraisal"></div>
+          <div class="quick-ivs">
+            <button type="button" class="chip-btn" data-iv="15,15,15">15/15/15</button>
+            <button type="button" class="chip-btn" data-iv="10,10,10">Raid floor</button>
+            <button type="button" class="chip-btn" data-iv="12,12,12">Lucky floor</button>
+            <button type="button" class="chip-btn" data-iv="0,15,15">0/15/15</button>
+          </div>
+        </div>
+        <div class="field two">
+          <div>
+            <label class="label" for="check-cp">CP</label>
+            <input id="check-cp" type="number" inputmode="numeric" min="10" max="9999">
+          </div>
+          <div>
+            <label class="label" for="check-lv">Level</label>
+            <select id="check-lv"></select>
+          </div>
+        </div>
+        <p class="hint" id="cp-hint" aria-live="polite"></p>
+      </form>
+      <div class="results" id="check-results" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- RANKINGS -->
+  <section class="view" id="view-rankings" aria-labelledby="h-rank" hidden>
+    <div class="panel toolbar">
+      <h1 id="h-rank" class="panel-title">League IV rankings</h1>
+      <div class="toolbar-row">
+        <div class="field grow">
+          <label class="label" for="rank-poke">Pokémon</label>
+          <div class="combo" data-combo="rank"><input id="rank-poke" class="combo-input" role="combobox" aria-expanded="false" aria-autocomplete="list" placeholder="Name or dex number"><ul class="combo-list" role="listbox" hidden></ul></div>
+        </div>
+        <div class="field">
+          <span class="label">League</span>
+          <div class="seg" id="rank-league" role="radiogroup" aria-label="League"></div>
+        </div>
+        <div class="field">
+          <label class="label" for="rank-floor">IV floor</label>
+          <select id="rank-floor">
+            <option value="0">0 · wild</option>
+            <option value="1">1 · good friend trade</option>
+            <option value="2">2 · great friend trade</option>
+            <option value="3">3 · ultra friend trade</option>
+            <option value="4">4 · weather boosted</option>
+            <option value="5">5 · best friend trade</option>
+            <option value="10">10 · raid, egg, research</option>
+            <option value="12">12 · lucky trade</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="label">Find IVs</span>
+          <div class="find-ivs">
+            <label class="visually-hidden" for="find-a">Attack IV</label><input id="find-a" type="number" min="0" max="15" inputmode="numeric" placeholder="A">
+            <label class="visually-hidden" for="find-d">Defense IV</label><input id="find-d" type="number" min="0" max="15" inputmode="numeric" placeholder="D">
+            <label class="visually-hidden" for="find-h">HP IV</label><input id="find-h" type="number" min="0" max="15" inputmode="numeric" placeholder="H">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="rank-out"></div>
+  </section>
+
+  <!-- RAIDS -->
+  <section class="view" id="view-raids" aria-labelledby="h-raid" hidden>
+    <div class="panel toolbar">
+      <h1 id="h-raid" class="panel-title">Raid attackers</h1>
+      <div class="type-filter" id="raid-types" role="group" aria-label="Charged move type"></div>
+      <div class="toolbar-row">
+        <div class="field">
+          <span class="label">Show</span>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="raid-mega" checked> Mega</label>
+            <label class="toggle"><input type="checkbox" id="raid-shadow" checked> Shadow</label>
+            <label class="toggle"><input type="checkbox" id="raid-star" checked> * moves</label>
+            <label class="toggle"><input type="checkbox" id="raid-best" checked> Best moveset only</label>
+          </div>
+        </div>
+        <div class="field grow">
+          <label class="label" for="raid-search">Filter by name</label>
+          <input id="raid-search" placeholder="e.g. mewtwo">
+        </div>
+      </div>
+    </div>
+    <div id="raid-out"></div>
+  </section>
+
+  <!-- BOX -->
+  <section class="view" id="view-box" aria-labelledby="h-box" hidden>
+    <div class="panel toolbar">
+      <div class="title-row">
+        <h1 id="h-box" class="panel-title">Box · <span id="box-user"></span></h1>
+        <div class="btn-row">
+          <button class="btn" id="box-export">Export</button>
+          <label class="btn" for="box-import">Import</label>
+          <input type="file" id="box-import" accept="application/json,.json" hidden>
+        </div>
+      </div>
+      <div class="filter-block">
+        <div class="filter-head"><span class="label">Pokémon type</span><span class="fine">pick up to 2</span>
+          <div class="seg sm" id="box-type-mode" role="radiogroup" aria-label="How two types combine"><button data-v="and">Both types</button><button data-v="or">Either type</button></div></div>
+        <div class="type-filter" id="box-ptypes" role="group" aria-label="Pokémon type"></div>
+      </div>
+      <div class="filter-block">
+        <div class="filter-head"><span class="label">Move type</span><span class="fine">charged move</span></div>
+        <div class="type-filter" id="box-mtypes" role="group" aria-label="Charged move type"></div>
+      </div>
+      <div class="toolbar-row">
+        <div class="field">
+          <label class="label" for="box-sort">Sort by</label>
+          <select id="box-sort">
+            <option value="raid-hi">Raid, at Lv50 with its IVs</option>
+            <option value="raid-now">Raid, current level</option>
+            <option value="labels">Labels first</option>
+            <option value="raid-ref">Raid, Lv40 15/15/15</option>
+            <option value="great">Great League %</option>
+            <option value="ultra">Ultra League %</option>
+            <option value="master">Master League %</option>
+            <option value="little">Little Cup %</option>
+            <option value="added">Recently added</option>
+          </select>
+        </div>
+        <div class="field grow">
+          <label class="label" for="box-search">Filter by name</label>
+          <input id="box-search" placeholder="e.g. charizard">
+        </div>
+      </div>
+      <p class="fine" id="box-io-msg" aria-live="polite"></p>
+    </div>
+    <div id="box-out"></div>
+  </section>
+
+  <!-- IMPORT -->
+  <section class="view" id="view-import" aria-labelledby="h-import" hidden>
+    <div class="panel toolbar">
+      <div class="title-row">
+        <h1 id="h-import" class="panel-title">Import from the game</h1>
+        <button class="btn primary" id="import-add" disabled>Add to box</button>
+      </div>
+      <div class="field">
+        <span class="label">Pokémon in this recording</span>
+        <div class="seg" id="import-origin" role="radiogroup" aria-label="Pokémon in this recording">
+          <button type="button" data-v="normal">All normal</button><button type="button" data-v="shadow">All shadow</button><button type="button" data-v="purified">All purified</button><button type="button" data-v="mixed">Mixed</button>
+        </div>
+        <span class="fine">Tip: in Pokémon GO, search <b>shadow</b> or <b>purified</b> in your Pokémon list first, then record. With Mixed, everything starts as Normal and you set each card.</span>
+      </div>
+      <label class="drop" id="import-drop" for="import-file">
+        <input type="file" id="import-file" accept="video/*,image/*,.mov,.mp4" multiple>
+        <strong>Choose a screen recording or screenshots</strong>
+        <span>In Pokémon GO, open a Pokémon, tap <b>Appraise</b>, then swipe through your Pokémon while recording, about 1 second each. Everything is read on this device; nothing is uploaded.</span>
+      </label>
+      <div class="progress-row">
+        <progress id="import-progress" max="1" value="0" hidden></progress>
+        <button type="button" class="btn small" id="import-cancel" hidden>Stop</button>
+      </div>
+      <p class="hint" id="import-status" aria-live="polite"></p>
+      <p class="fine">Saving into <b id="import-target"></b>'s box. IVs are read from the bars; CP, HP and the species name in the leader's speech bubble are read as text.</p>
+      <div class="other-picker" id="import-other" hidden>
+        <input type="hidden" id="import-other-uid">
+        <div class="field grow">
+          <label class="label" for="import-other-input">Pick the species</label>
+          <div class="combo" data-combo="import"><input id="import-other-input" class="combo-input" role="combobox" aria-expanded="false" aria-autocomplete="list" placeholder="Name or dex number"><ul class="combo-list" role="listbox" hidden></ul></div>
+        </div>
+        <button type="button" class="btn" id="import-other-close">Cancel</button>
+      </div>
+    </div>
+    <div id="import-out"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>Raid DPS / TDO / eDPS / ER from a Pokébase DPS-calculator export (attacker Lv40, IV 15/15/15, no weather). "Now" values are scaled to your Pokémon's stats; Lv50 15/15/15 is shown in brackets. Base stats and families from the PvPoke gamemaster. Images: PokeAPI sprites (Pokémon artwork © Nintendo / Creatures / GAME FREAK / The Pokémon Company; unofficial fan tool). * = Elite, Exclusive, Legacy, Move+ or Purified-only move. Your box is saved in this browser only, so use Export to back it up.</p>
+</footer>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="data/data.js"></script>
+<script src="app.js"></script>
+<script src="import.js"></script>
+</body>
+</html>
