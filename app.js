@@ -335,7 +335,7 @@ function formCard(p, iv, lvIdx, origin, expanded) {
   const isMega = p.mega;
   const cpNow = cpAt(p, iv, lvIdx);
   const { rows, total } = raidRows(p, iv, lvIdx, origin, expanded ? 0 : 4);
-  const leagues = isMega ? '' : `<div class="leagues">${LEAGUES.map(L => leagueTile(p, L, iv, lvIdx, origin)).join('')}</div>`;
+  const leagues = `<div class="leagues">${LEAGUES.map(L => leagueTile(p, L, iv, lvIdx, origin)).join('')}</div>`;
   const raid = total ? `<div class="table-wrap"><table>
       <thead><tr><th>Moveset</th>${RAID_HEAD()}</tr></thead>
       <tbody>${rows.map(({ m, now, ref }) => `<tr>
@@ -348,7 +348,7 @@ function formCard(p, iv, lvIdx, origin, expanded) {
     <div class="form-head">
       ${pic(p, 'art')}<h2>${esc(p.name)}</h2>${p.types.map(t => typeChip(t)).join('')}
       ${origin === 'shadow' && !isMega ? '<span class="badge shadow">Shadow</span>' : ''}${origin === 'purified' && !isMega ? '<span class="badge purified">Purified</span>' : ''}
-      ${isMega ? '<span class="badge mega">Mega · raids only</span>' : ''}${p.estimated ? '<span class="badge est" title="Base stats estimated from the base form so the scaling works; raid numbers are Pokébase\'s">est. stats</span>' : ''}
+      ${isMega ? '<span class="badge mega">Mega</span>' : ''}${p.estimated ? '<span class="badge est" title="Base stats estimated from the base form so the scaling works; raid numbers are Pokébase\'s">est. stats</span>' : ''}
       <span class="meta">#${p.dex} · ${p.atk}/${p.def}/${p.hp} · CP ${cpNow} at Lv ${LV[lvIdx]}</span>
       <span class="spacer"></span>
       ${isMega ? '' : `<button class="btn small" data-save="${esc(p.id)}" data-origin="${origin}" data-iv="${iv.join(',')}" data-lv="${lvIdx}">Save to box</button>`}
@@ -365,8 +365,7 @@ function leagueInfo(p, L, iv, lvIdx) {
 }
 function summaryTable(forms) {
   const rows = forms.map(({ x, o, iv, lv }) => {
-    const leagues = x.mega ? `<td colspan="4"><span class="fine">Mega · raids only</span></td>`
-      : LEAGUES.map(L => `<td data-l="${L.name.replace(' League', '').replace(' Cup', '')}">${pill(leagueInfo(x, L, iv, lv))}</td>`).join('');
+    const leagues = LEAGUES.map(L => `<td data-l="${L.name.replace(' League', '').replace(' Cup', '')}">${pill(leagueInfo(x, L, iv, lv))}</td>`).join('');
     const sc = raidScale(x, iv, lv);
     const good = movesFor(x, o).filter(passesRaidBar)
       .map(m => ({ m, now: scaled(m, sc) })).sort((a, b) => metricOf(b.now) - metricOf(a.now)).slice(0, 2);
@@ -486,7 +485,7 @@ function renderRankings() {
 function bindRankings() {
   $('#rank-league').innerHTML = LEAGUES.map(L => `<button data-v="${L.key}">${L.name.replace(' League', '').replace(' Cup', '')}</button>`).join('');
   bindSeg($('#rank-league'), v => { ui.rankLeague = v; rankShown = 50; renderRankings(); });
-  combo($('[data-combo="rank"]'), { megas: false, getId: () => ui.rankId, onPick: p => { ui.rankId = p.id; rankShown = 50; renderRankings(); } });
+  combo($('[data-combo="rank"]'), { megas: true, getId: () => ui.rankId, onPick: p => { ui.rankId = p.id; rankShown = 50; renderRankings(); } });
   $('#rank-floor').addEventListener('change', e => { ui.rankFloor = +e.target.value; rankShown = 50; renderRankings(); });
   ['#find-a', '#find-d', '#find-h'].forEach(s => $(s).addEventListener('input', renderRankings));
 }
@@ -648,12 +647,15 @@ function evalEntry(e) {
   return { e, p, main, megas, nFinals: finals.length, best: !e.charged, hasMove: !ui.boxMove || !!main, cp: cpAt(p, e.iv, e.lvIdx) };
 }
 /* best league % it can reach in L (any form it can still become that fits under the cap at its level) — for sorting */
+/* Forms it can use in PvP: itself, its evolutions, and their Megas (a shadow has to be purified to Mega Evolve). */
+const pvpForms = p => forwardLine(p).flatMap(S => [S, ...megasOf(S)]);
+function pvpAt(e, S, L) {
+  const f = asForm(e, S), t = leagueTable(S, L), k = ivKey(f.iv);
+  return t.sp[k] < 0 || cpAt(S, f.iv, f.lv) > L.cap ? null : { pct: pctOf(t, k), rank: t.rank[k] };
+}
 function bestLeaguePct(r, L) {
   let b = -1;
-  for (const S of forwardLine(r.p)) {
-    const t = leagueTable(S, L), k = ivKey(r.e.iv);
-    if (t.sp[k] >= 0 && cpAt(S, r.e.iv, r.e.lvIdx) <= L.cap) b = Math.max(b, pctOf(t, k));
-  }
+  for (const S of pvpForms(r.p)) { const v = pvpAt(r.e, S, L); if (v) b = Math.max(b, v.pct); }
   return b;
 }
 
@@ -664,7 +666,8 @@ function bestLeaguePct(r, L) {
    counts the purified IVs); otherwise a dim label with a note.
    PvP: a form it can still become reaches ivPvp % in Little / Great / Ultra and fits under the cap at its current level.
    In Great / Ultra a form is skipped when one of its evolutions also fits (Machop isn't a Great League pick when Machamp
-   fits); Little Cup only counts forms that can still evolve. Master League: final forms, only when there's no raid label.
+   fits); Little Cup only counts forms that can still evolve. Megas count too (shadows as purified).
+   Master League: final forms and their Megas, only when there's no raid label.
    All: a note when another Pokémon in the box that can become the same form does better. */
 let labelsCache = { key: '', map: null };
 function boxLabels(rows) {
@@ -679,10 +682,7 @@ function boxLabels(rows) {
     if (!mineCache.has(k)) { const f = asForm(r.e, S); mineCache.set(k, catValues(S, entryMoves(r.e, S), raidScale(S, f.iv, Math.max(f.lv, hiIdx())))); }
     return mineCache.get(k);
   };
-  const pvp = (r, S, L) => {
-    const t = leagueTable(S, L), k = ivKey(r.e.iv);
-    return t.sp[k] < 0 || cpAt(S, r.e.iv, r.e.lvIdx) > L.cap ? null : { pct: pctOf(t, k), rank: t.rank[k] };
-  };
+  const pvp = (r, S, L) => pvpAt(r.e, S, L);
   const stronger = (self, S, valueOf, own) => {
     let best = null, bv = own + 1e-9;
     for (const o of rows) { if (o === self || !canBe(o, S)) continue; const v = valueOf(o); if (v > bv) { bv = v; best = o; } }
@@ -720,8 +720,8 @@ function boxLabels(rows) {
     const hasRaid = out.length > 0;
     for (const L of LEAGUES) {
       if (L === MASTER && hasRaid) continue;   // Master League label only for Pokémon without a raid label
-      for (const S of lines.get(r.e.uid)) {
-        if (L.key === 'little' ? !(S.evolutions || []).length   // Little Cup: only Pokémon that can still evolve
+      for (const S of pvpForms(r.p)) {
+        if (L.key === 'little' ? !(S.evolutions || []).length   // Little Cup: only Pokémon that can still evolve (no Megas)
           : forwardLine(S).some(N => N !== S && cpAt(N, r.e.iv, r.e.lvIdx) <= L.cap)) continue;   // an evolution also fits: label that instead
         const v = pvp(r, S, L);
         if (!v || v.pct < settings.ivPvp) continue;
@@ -851,7 +851,7 @@ function renderBox() {
   const s = ui.boxSort, L = LEAGUES.find(x => x.key === s);
   const raidKey = k => r => r.main ? metricOf(r.main[k]) : -1;
   const key = s === 'raid-hi' ? raidKey('hi') : s === 'raid-now' ? raidKey('now') : s === 'raid-ref' ? raidKey('ref')
-    : s === 'added' ? r => r.e.added : s === 'labels' ? r => labelScore(labels.get(r.e.uid)) * 1000 + raidKey('hi')(r) : r => bestLeaguePct(r, L);
+    : s === 'added' ? r => r.e.added : s === 'dex' ? r => -r.p.dex * 1e5 + r.cp : s === 'labels' ? r => labelScore(labels.get(r.e.uid)) * 1000 + raidKey('hi')(r) : r => bestLeaguePct(r, L);
   const keyed = rows.map(r => [key(r), r]).sort((a, b) => b[0] - a[0]);
   rows = keyed.map(x => x[1]);
   out.innerHTML = backupBanner() + top6Panel(rows, filterDesc()) + (rows.length
