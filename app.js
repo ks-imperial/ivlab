@@ -193,10 +193,23 @@ function bindSeg(el, onPick) {
 }
 
 const norm = s => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-const SEARCH = D.pokemon.map(p => ({ p, n: norm(p.name) }));
+/* Japanese: full-width (NFKC), hiragana → katakana, no spaces or ・, so りざ / ﾘｻﾞ / リザ all match リザードン. */
+const jnorm = s => String(s || '').normalize('NFKC').replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)).replace(/[\s・･]/g, '');
+const isKana = s => /[\u3040-\u30ff\uff66-\uff9f]/.test(s);
+const SEARCH = D.pokemon.map(p => ({ p, n: norm(p.name), j: jnorm(p.ja) }));
+/* name filter for lists: English words or Japanese name */
+const nameMatch = (p, raw) => isKana(raw) ? jnorm(p.ja).includes(jnorm(raw)) : norm(p.name).includes(norm(raw));
 function searchPokemon(q, { megas = false, limit = 40 } = {}) {
-  q = norm(q);
   const pool = SEARCH.filter(s => (megas || !s.p.mega) && s.p.released !== false);
+  if (isKana(q)) {
+    const jq = jnorm(q), hits = [];
+    for (const s of pool) {
+      if (!s.j.includes(jq)) continue;
+      hits.push([(s.j === jq ? 0 : s.j.startsWith(jq) ? 1 : 2) * 10000 + s.p.dex + (s.p.mega ? 0.5 : 0), s.p]);
+    }
+    return hits.sort((a, b) => a[0] - b[0]).slice(0, limit).map(h => h[1]);
+  }
+  q = norm(q);
   if (!q) return pool.slice(0, limit).map(s => s.p);
   if (/^\d+$/.test(q)) return pool.filter(s => String(s.p.dex) === q).map(s => s.p);
   const toks = q.split(' ');
@@ -213,7 +226,7 @@ function combo(root, { megas, onPick, getId }) {
   const input = $('.combo-input', root), list = $('.combo-list', root);
   let items = [], active = 0;
   const show = () => {
-    list.innerHTML = items.length ? items.map((p, i) => `<li role="option" id="${root.dataset.combo}-opt-${i}" data-i="${i}" aria-selected="${i === active}">${pic(p)}<span class="dex">#${p.dex}</span><span>${esc(p.name)}</span><span class="types">${p.types.map(t => typeChip(t, true)).join('')}</span></li>`).join('')
+    list.innerHTML = items.length ? items.map((p, i) => `<li role="option" id="${root.dataset.combo}-opt-${i}" data-i="${i}" aria-selected="${i === active}">${pic(p)}<span class="dex">#${p.dex}</span><span>${esc(p.name)}${p.ja ? ` <span class="ja">${esc(p.ja)}</span>` : ''}</span><span class="types">${p.types.map(t => typeChip(t, true)).join('')}</span></li>`).join('')
       : '<li aria-disabled="true">No Pokémon found</li>';
     list.hidden = false; input.setAttribute('aria-expanded', 'true');
     if (items.length) input.setAttribute('aria-activedescendant', `${root.dataset.combo}-opt-${active}`);
@@ -500,12 +513,12 @@ function typeFilter(el, current, onPick) {
 function renderRaids() {
   typeFilter($('#raid-types'), ui.raidType, t => { ui.raidType = t; raidShown = 50; renderRaids(); });
   const megaOk = $('#raid-mega').checked, shOk = $('#raid-shadow').checked, starOk = $('#raid-star').checked, bestOnly = $('#raid-best').checked;
-  const q = norm($('#raid-search').value);
+  const q = $('#raid-search').value.trim();
   let rows = [];
   for (const [id, ms] of MOVES) {
     const p = POKE.get(id);
     if (!p || (!megaOk && p.mega)) continue;
-    if (q && !norm(p.name).includes(q)) continue;
+    if (q && !nameMatch(p, q)) continue;
     for (const m of ms) {
       if (!shOk && m.shadow) continue;
       if (!starOk && (m.fastStar || m.chargedStar)) continue;
@@ -843,10 +856,10 @@ function renderBox() {
   }
   const allRows = box().map(evalEntry).filter(Boolean);
   const labels = boxLabels(allRows);
-  const q = norm($('#box-search').value);
+  const q = $('#box-search').value.trim();
   const pt = ui.boxTypes;
   let rows = allRows.filter(r => r.hasMove
-    && (!q || norm(r.p.name).includes(q))
+    && (!q || nameMatch(r.p, q))
     && (!pt.length || (ui.boxTypeMode === 'and' ? pt.every(t => r.p.types.includes(t)) : pt.some(t => r.p.types.includes(t)))));
   const s = ui.boxSort, L = LEAGUES.find(x => x.key === s);
   const raidKey = k => r => r.main ? metricOf(r.main[k]) : -1;

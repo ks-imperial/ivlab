@@ -407,3 +407,5 @@ td.wrap { white-space: normal; min-width: 130px; }
 .mega-val b.key { font-weight: 800; }
 .lbl.raid.mega { box-shadow: inset 3px 0 var(--t, var(--warn)), inset 0 0 0 1px var(--warn-soft); }
 .lg-master { --lgc: var(--lg-master); }
+
+.combo-list .ja { color: var(--ink-2); font-size: 12px; margin-left: 4px; }
