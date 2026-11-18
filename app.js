@@ -582,40 +582,27 @@ const megasOf = S => MEGAS.get(S.id) || [];
 const megaBase = M => D.pokemon.find(b => megasOf(b).includes(M));
 const megaName = M => (M.name.match(/\(([^)]*)\)/) || [, 'Mega'])[1];
 
-/* Game-wide raid standings at LvMax 15/15/15, one entry per form and per shadow / non-shadow, with its best value
-   overall and per charged-move type. Regular forms and Megas are ranked separately (unreleased forms left out). */
-let standingsCache = null;
-function raidStandings() {
-  if (standingsCache) return standingsCache;
-  const mk = () => ({ all: [], byMove: new Map() }), reg = mk(), meg = mk();
-  for (const [id, rows] of MOVES) {
-    const p = POKE.get(id);
-    if (!p || p.released === false) continue;
-    const tgt = p.mega ? meg : reg;
-    const sc = raidScale(p, [15, 15, 15], hiIdx());
-    for (const sh of [false, true]) {
-      const ms = rows.filter(m => m.shadow === sh && (sh || m.charged !== 'Return'));
-      if (!ms.length) continue;
-      const v = catValues(p, ms, sc);
-      tgt.all.push({ id, sh, types: p.types, v: v.all });
-      for (const x of TYPES) if (x in v) { if (!tgt.byMove.has(x)) tgt.byMove.set(x, []); tgt.byMove.get(x).push({ id, sh, types: p.types, v: v[x] }); }
+/* Raid labels rank the Pokémon in this box against each other, each with its own IVs at LvMax: one value per Pokémon
+   and category (its best final evolution; Megas go in their own pool). Categories: 'all', each charged-move type, and
+   '=fire' for same-type attackers (Fire-type forms with Fire moves). */
+function boxPools(rows, mine, lines) {
+  const reg = new Map(), meg = new Map();
+  const put = (pool, cat, uid, v) => { let m = pool.get(cat); if (!m) pool.set(cat, m = new Map()); if (!(m.get(uid) >= v)) m.set(uid, v); };
+  for (const r of rows) for (const F of lines.get(r.e.uid).filter(isFinal)) for (const S of [F, ...megasOf(F)]) {
+    const v = mine(r, S), pool = S.mega ? meg : reg;
+    if (v.all < 0) continue;
+    for (const cat in v) {
+      put(pool, cat, r.e.uid, v[cat]);
+      if (!S.mega && cat !== 'all' && S.types.includes(cat)) put(pool, '=' + cat, r.e.uid, v[cat]);
     }
   }
-  const desc = (a, b) => b.v - a.v;
-  for (const t of [reg, meg]) { t.all.sort(desc); for (const l of t.byMove.values()) l.sort(desc); }
-  return (standingsCache = { reg, meg });
+  return { reg, meg };
 }
-/* Rank of value v in a standings list (ties share), not counting the form itself; only types with `type` count when given.
-   Stops once past the top 6. */
-function standing(list, v, id, sh, type) {
-  let r = 1;
-  for (const o of list) {
-    if (o.v <= v * (1 + 1e-9)) break;
-    if (o.id === id && o.sh === sh) continue;
-    if (type && !o.types.includes(type)) continue;
-    if (++r > RAID_TOP) break;
-  }
-  return r;
+/* rank of value v among the other Pokémon in a pool category (ties share the rank) */
+function boxRank(pool, cat, uid, v) {
+  let n = 1;
+  for (const [u, o] of pool.get(cat) || []) if (u !== uid && o > v * (1 + 1e-9)) n++;
+  return n;
 }
 /* best raid value overall ('all') and per charged-move type, for movesets ms at stat scale sc */
 function catValues(p, ms, sc) {
@@ -673,9 +660,9 @@ function bestLeaguePct(r, L) {
 }
 
 /* Labels for every Pokémon in the box.
-   Raid: its final evolution is a top-6 attacker in the whole game at LvMax 15/15/15 — overall, among its charged-move
-   type, or among Pokémon of that same type using that move type (Fire-type Fire attackers). Its Megas are ranked
-   among Megas only. Full label when the Master League IV % is at least ivRaid (ivRaidShadow for shadows; a Mega
+   Raid: as its final evolution, with its own IVs at LvMax, it is in the top 6 of this box — overall, among its
+   charged-move type, or among same-type attackers (Fire-type Fire attackers). Its Megas are ranked among the box's
+   Megas only. Full label when the Master League IV % is at least ivRaid (ivRaidShadow for shadows; a Mega
    counts the purified IVs); otherwise a dim label with a note.
    PvP: a form it can still become reaches ivPvp % in Little / Great / Ultra and fits under the cap at its current level.
    In Great / Ultra a form is skipped when one of its evolutions also fits (Machop isn't a Great League pick when Machamp
@@ -686,7 +673,6 @@ let labelsCache = { key: '', map: null };
 function boxLabels(rows) {
   const key = JSON.stringify([boxState.current, box(), settings, ui.boxMove]);
   if (labelsCache.key === key) return labelsCache.map;
-  const { reg, meg } = raidStandings();
   const lines = new Map(rows.map(r => [r.e.uid, forwardLine(r.p)]));
   const canBe = (r, S) => lines.get(r.e.uid).some(x => S.mega ? megasOf(x).includes(S) : x.id === S.id);
   const mineCache = new Map();
@@ -695,6 +681,7 @@ function boxLabels(rows) {
     if (!mineCache.has(k)) { const f = asForm(r.e, S); mineCache.set(k, catValues(S, entryMoves(r.e, S), raidScale(S, f.iv, Math.max(f.lv, hiIdx())))); }
     return mineCache.get(k);
   };
+  const { reg, meg } = boxPools(rows, mine, lines);
   const pvp = (r, S, L) => pvpAt(r.e, S, L);
   const stronger = (self, S, valueOf, own) => {
     let best = null, bv = own + 1e-9;
@@ -706,20 +693,18 @@ function boxLabels(rows) {
     const out = [];
     const finals = lines.get(r.e.uid).filter(isFinal);
     for (const S of finals.flatMap(F => [F, ...megasOf(F)])) {
-      const ms = entryMoves(r.e, S);
-      if (!ms.length) continue;
-      const sh = ms[0].shadow, st = S.mega ? meg : reg;
-      const spec = catValues(S, ms, raidScale(S, [15, 15, 15], hiIdx()));
+      const v = mine(r, S);
+      if (v.all < 0) continue;
+      const pool = S.mega ? meg : reg, rank = cat => boxRank(pool, cat, r.e.uid, v[cat.replace('=', '')]);
       const found = [];
-      const rAll = standing(st.all, spec.all, S.id, sh);
+      const rAll = rank('all');
       if (rAll <= RAID_TOP) found.push({ cat: 'all', rank: rAll, text: `#${rAll} overall`, tier: 3 });
       for (const x of TYPES) {
-        if (!(x in spec)) continue;
-        const list = st.byMove.get(x) || [];
-        const rX = standing(list, spec[x], S.id, sh);
+        if (!(x in v)) continue;
+        const rX = rank(x);
         if (rX <= RAID_TOP) found.push({ cat: x, rank: rX, text: `#${rX} ${cap1(x)}`, tier: 2, x });
         if (!S.mega && S.types.includes(x)) {   // same-type attackers: Fire-type Pokémon with Fire moves
-          const rXY = standing(list, spec[x], S.id, sh, x);
+          const rXY = rank('=' + x);
           if (rXY <= RAID_TOP && rXY !== rX) found.push({ cat: x, rank: rXY, text: `#${rXY} ${cap1(x)}-type ${cap1(x)}`, tier: 1, x });
         }
       }
@@ -870,7 +855,7 @@ function renderBox() {
   out.innerHTML = backupBanner() + top6Panel(rows, filterDesc()) + (rows.length
     ? `<div class="mon-list">${rows.map(r => monCard(r, labels.get(r.e.uid) || [])).join('')}</div>
       <p class="fine">Tap a name to open it in Check. Raid numbers are for the best final evolution (→) and its Megas: now · at Lv${settings.lvMaster} with its IVs · Pokébase max IVs at Lv40 (Lv${settings.lvMaster}).
-      "Best" = no moveset picked yet. Raid labels compare with every released Pokémon at Lv${settings.lvMaster} 15/15/15 (Megas only with Megas).
+      "Best" = no moveset picked yet. Raid labels rank this box against itself: each Pokémon as its best final evolution with its own IVs at Lv${settings.lvMaster} (Megas only with Megas).
       League labels show only when a form it can become reaches your % (Settings).</p>`
     : `<div class="panel empty"><strong>Nothing matches</strong><span>Clear a type or name filter.</span></div>`);
   saveUi();
@@ -999,7 +984,7 @@ function route() {
   $$('.tabs a').forEach(a => { if (a.dataset.tab === v) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   RENDER[v]();
 }
-function rerenderAll() { tableCache.clear(); standingsCache = null; labelsCache.key = ''; route(); }
+function rerenderAll() { tableCache.clear(); labelsCache.key = ''; route(); }
 function bindShell() {
   $('#settings-btn').addEventListener('click', e => { const s = $('#settings'); s.hidden = !s.hidden; e.currentTarget.setAttribute('aria-expanded', String(!s.hidden)); });
   const seg = (id, key, num) => { setSeg($(id), settings[key]); bindSeg($(id), v => { settings[key] = num ? +v : v; setSeg($(id), settings[key]); saveSettings(); fillLevelSelect(); $('#check-lv').value = check.lvIdx; rerenderAll(); }); };

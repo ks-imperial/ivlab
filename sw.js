@@ -1,7 +1,7 @@
 /* IV Lab service worker: makes the installed app open and work offline.
    - App files: served from cache, refreshed in the background (bump VERSION after editing the site).
    - OCR engine + language data and Pokémon sprites: cached the first time they are used. */
-const VERSION = 'ivlab-2026-11-16b';
+const VERSION = 'ivlab-2026-11-18a';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './import.js', './data/data.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png',
