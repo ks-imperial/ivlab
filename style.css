@@ -409,3 +409,4 @@ td.wrap { white-space: normal; min-width: 130px; }
 .lg-master { --lgc: var(--lg-master); }
 
 .combo-list .ja { color: var(--ink-2); font-size: 12px; margin-left: 4px; }
+.mon-meta .was { display: block; font-size: 11px; color: var(--ink-2); text-align: right; }

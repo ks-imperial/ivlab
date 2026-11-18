@@ -582,35 +582,38 @@ const megasOf = S => MEGAS.get(S.id) || [];
 const megaBase = M => D.pokemon.find(b => megasOf(b).includes(M));
 const megaName = M => (M.name.match(/\(([^)]*)\)/) || [, 'Mega'])[1];
 
-/* Raid labels rank the Pokémon in this box against each other, each with its own IVs at LvMax: one value per Pokémon
-   and category (its best final evolution; Megas go in their own pool). Categories: 'all', each charged-move type x,
-   and 'T>x' for Pokémon of type T using x moves ('fire>fire' = same-type attackers). `dex` keeps the best overall
-   value per species, for the distinct ranking (one per species: Shadow Mewtwo and Mewtwo count once). */
+/* Raid labels rank the Pokémon in this box against each other, each with its own IVs at LvMax, per charged-move type
+   (one value per Pokémon: its best final evolution; Megas go in their own pool). `cat` holds per move type x and per
+   exact type pair + move type ('Fire/Flying>Fire'; Flying/Fire is the same pair); `dex` keeps the best per species and
+   move type, for the distinct ranking (one per species: Shadow Mewtwo and Mewtwo count once). */
+const typePair = S => [...S.types].sort().join('/');
 function boxPools(rows, mine, lines) {
   const mk = () => ({ cat: new Map(), dex: new Map() }), reg = mk(), meg = mk();
-  const put = (pool, cat, uid, v) => { let m = pool.cat.get(cat); if (!m) pool.cat.set(cat, m = new Map()); if (!(m.get(uid) >= v)) m.set(uid, v); };
+  const put = (m, k, id, v) => { let x = m.get(k); if (!x) m.set(k, x = new Map()); if (!(x.get(id) >= v)) x.set(id, v); };
   for (const r of rows) for (const F of lines.get(r.e.uid).filter(isFinal)) for (const S of [F, ...megasOf(F)]) {
-    const v = mine(r, S), pool = S.mega ? meg : reg;
-    if (v.all < 0) continue;
-    if (!(pool.dex.get(S.dex) >= v.all)) pool.dex.set(S.dex, v.all);
-    for (const cat in v) {
-      put(pool, cat, r.e.uid, v[cat]);
-      if (cat !== 'all') for (const T of S.types) put(pool, T + '>' + cat, r.e.uid, v[cat]);
+    const v = mine(r, S), pool = S.mega ? meg : reg, pair = typePair(S);
+    for (const x in v) {
+      if (x === 'all' || v[x] < 0) continue;
+      put(pool.cat, x, r.e.uid, v[x]);
+      put(pool.cat, pair + '>' + x, r.e.uid, v[x]);
+      put(pool.dex, x, S.dex, v[x]);
     }
   }
   return { reg, meg };
 }
+const above = (o, v) => o > v * (1 + 1e-9);
 /* rank of value v among the other Pokémon in a pool category (ties share the rank) */
 function boxRank(pool, cat, uid, v) {
   let n = 1;
-  for (const [u, o] of pool.cat.get(cat) || []) if (u !== uid && o > v * (1 + 1e-9)) n++;
+  for (const [u, o] of pool.cat.get(cat) || []) if (u !== uid && above(o, v)) n++;
   return n;
 }
 /* rank among species (best of each species only); 0 when another of the same species is better */
-function distinctRank(pool, dex, v) {
-  if (pool.dex.get(dex) > v * (1 + 1e-9)) return 0;
+function distinctRank(pool, cat, dex, v) {
+  const m = pool.dex.get(cat) || new Map();
+  if (above(m.get(dex), v)) return 0;
   let n = 1;
-  for (const [d, o] of pool.dex) if (d !== dex && o > v * (1 + 1e-9)) n++;
+  for (const [d, o] of m) if (d !== dex && above(o, v)) n++;
   return n;
 }
 /* best raid value overall ('all') and per charged-move type, for movesets ms at stat scale sc */
@@ -645,15 +648,24 @@ function raidForm(e, S) {
   return { S, pick, now: scaled(pick, raidScale(S, f.iv, f.lv)), hi: scaled(pick, raidScale(S, f.iv, Math.max(f.lv, hiIdx()))), ref: refValues(S, pick) };
 }
 
+/* A shadow with its Purified switch on is ranked as purified: +2 IVs (max 15), Lv 25 at least, purified moves.
+   The stored shadow IVs never change, so switching back gives exactly the original numbers. */
+function effEntry(e, p) {
+  if (e.origin !== 'shadow' || !e.purify) return e;
+  const x = { ...e, origin: 'purified', iv: e.iv.map(v => Math.min(15, v + 2)), lvIdx: Math.max(e.lvIdx, li(25)) };
+  if (x.charged && !movesFor(p, 'purified').some(m => m.fast === x.fast && m.charged === x.charged)) x.fast = x.charged = null;
+  return x;
+}
 /* Box Pokémon at its full potential: raid numbers for its best final evolution, plus that form's Megas. */
-function evalEntry(e) {
-  const p = POKE.get(e.id);
+function evalEntry(raw) {
+  const p = POKE.get(raw.id);
   if (!p) return null;
+  const e = effEntry(raw, p);
   const finals = finalsOf(p);
   const opts = finals.map(S => raidForm(e, S)).filter(Boolean).sort((a, b) => metricOf(b.hi) - metricOf(a.hi));
   const main = opts[0] || null;
   const megas = main ? megasOf(main.S).map(M => raidForm(e, M)).filter(Boolean).sort((a, b) => metricOf(b.hi) - metricOf(a.hi)) : [];
-  return { e, p, main, megas, nFinals: finals.length, best: !e.charged, hasMove: !ui.boxMove || !!main, cp: cpAt(p, e.iv, e.lvIdx) };
+  return { e, raw, p, main, megas, nFinals: finals.length, best: !e.charged, hasMove: !ui.boxMove || !!main, cp: cpAt(p, e.iv, e.lvIdx) };
 }
 /* best league % it can reach in L (any form it can still become that fits under the cap at its level) — for sorting */
 /* Forms it can use in PvP: itself, its evolutions, and their Megas (a shadow has to be purified to Mega Evolve). */
@@ -669,10 +681,9 @@ function bestLeaguePct(r, L) {
 }
 
 /* Labels for every Pokémon in the box.
-   Raid: as its final evolution, with its own IVs at LvMax, it is in the top 6 of this box — overall, among distinct
-   species (best of each species only), among its charged-move type, or among same-type attackers (Fire-type Fire
-   attackers); or #1 among Pokémon of one of its types using a move type (Ground-type Rock). Its Megas are ranked
-   among the box's Megas only: top 3 overall and distinct, top 6 per move type, #1 per Pokémon type + move type. Full label when the Master League IV % is at least ivRaid (ivRaidShadow for shadows; a Mega
+   Raid, per charged-move type: as its final evolution, with its own IVs at LvMax, it is in the top 6 of this box for
+   that move type, or top 6 among distinct species (best of each species only), or #1 among Pokémon with exactly its
+   type pair (Fire/Flying with Fire). Its Megas are ranked among the box's Megas only (top 3, top 3 distinct, #1 pair). Full label when the Master League IV % is at least ivRaid (ivRaidShadow for shadows; a Mega
    counts the purified IVs); otherwise a dim label with a note.
    PvP: a form it can still become reaches ivPvp % in Little / Great / Ultra and fits under the cap at its current level.
    In Great / Ultra a form is skipped when one of its evolutions also fits (Machop isn't a Great League pick when Machamp
@@ -705,25 +716,19 @@ function boxLabels(rows) {
     for (const S of finals.flatMap(F => [F, ...megasOf(F)])) {
       const v = mine(r, S);
       if (v.all < 0) continue;
-      const M = S.mega, pool = M ? meg : reg, top = M ? RAID_TOP_MEGA : RAID_TOP, pre = M ? 'Mega ' : '';
-      const rank = cat => boxRank(pool, cat, r.e.uid, v[cat.split('>').pop()]);
+      const M = S.mega, pool = M ? meg : reg, top = M ? RAID_TOP_MEGA : RAID_TOP, pre = M ? 'Mega ' : '', uid = r.e.uid;
+      const pair = typePair(S), pairName = S.types.length > 1 ? S.types.map(cap1).join('/') : `pure ${cap1(S.types[0])}`;
+      const bestType = (entryMoves(r.e, S).reduce((a, m) => !a || metricOf(m) > metricOf(a) ? m : a, null) || {}).chargedType;
       const found = [];
-      const rAll = rank('all');
-      if (rAll <= top) found.push({ cat: 'all', rank: rAll, text: M ? `#${rAll} Mega` : `#${rAll} overall`, tier: 3 });
-      const rD = distinctRank(pool, S.dex, v.all);
-      if (rD && rD <= top) found.push({ cat: 'all', rank: rD, text: `#${rD} ${pre}distinct`, tier: 3, distinct: true });
       for (const x of TYPES) {
         if (!(x in v)) continue;
-        const rX = rank(x);
-        if (rX <= RAID_TOP) found.push({ cat: x, rank: rX, text: `#${rX} ${pre}${cap1(x)}`, tier: 2, x });
-        for (const T of S.types) {
-          const rT = rank(T + '>' + x);
-          if (T === x && !M) {   // same-type attackers (Fire-type Pokémon with Fire moves): top 6
-            if (rT <= RAID_TOP && rT !== rX) found.push({ cat: x, rank: rT, text: `#${rT} ${cap1(x)}-type ${cap1(x)}`, tier: 1, x });
-          } else if (rT === 1 && rX !== 1) {   // any Pokémon type + move type: #1 only
-            found.push({ cat: x, rank: 1, text: `#1 ${pre}${cap1(T)}-type ${cap1(x)}`, tier: 1, x });
-          }
-        }
+        const rX = boxRank(pool, x, uid, v[x]);
+        if (rX <= top) found.push({ cat: x, rank: rX, text: `#${rX} ${pre}${cap1(x)}`, tier: 3, x });
+        const rD = distinctRank(pool, x, S.dex, v[x]);   // shown when it adds something (#5 Fire but #2 distinct Fire)
+        if (rD && rD <= top && rD !== rX) found.push({ cat: x, rank: rD, text: `#${rD} ${pre}distinct ${cap1(x)}`, tier: 2, x });
+        // exact type pair + move type, #1 only: for its own types' moves and its best moveset's type (not every coverage move)
+        if (rX !== 1 && (S.types.includes(x) || x === bestType) && boxRank(pool, pair + '>' + x, uid, v[x]) === 1)
+          found.push({ cat: x, rank: 1, text: `#1 ${pre}${pairName} with ${cap1(x)}`, tier: 1, x });
       }
       if (!found.length) continue;
       const f = asForm(r.e, S);
@@ -786,7 +791,7 @@ function labelRows(labels) {
 
 function monCard(r, labels) {
   const raidOk = labels.filter(l => l.kind === 'raid' && l.ok);
-  const glow = raidOk.some(l => l.tier === 3 && !l.mega) ? 'glow-3' : raidOk.length ? 'glow-2' : labels.some(l => l.kind === 'pvp') ? 'glow-pvp' : labels.length ? 'glow-dim' : '';
+  const glow = raidOk.some(l => !l.mega && l.tier >= 2 && l.rank === 1) ? 'glow-3' : raidOk.length ? 'glow-2' : labels.some(l => l.kind === 'pvp') ? 'glow-pvp' : labels.length ? 'glow-dim' : '';
   const num = (k, v) => `<b class="${settings.metric === k ? 'key' : ''}">${v ? fmt(v[k], 2) : '—'}</b>`;
   const m = r.main, own = m && m.S.id === r.p.id;
   const raid = !m ? `<p class="fine">${ui.boxMove ? `No ${esc(ui.boxMove)} moveset.` : 'No raid data.'}</p>` : `
@@ -803,9 +808,10 @@ function monCard(r, labels) {
     <div class="mon-head">
       <button type="button" class="link-btn" data-open="${esc(r.e.uid)}" title="Open in Check">${pic(r.p)}<span class="mon-name">${esc(r.p.name)}</span></button>
       <span class="mon-types">${r.p.types.map(t => typeChip(t, true)).join('')}</span>
-      <select class="mini origin-${r.e.origin}" data-origin="${esc(r.e.uid)}" aria-label="Origin of ${esc(r.p.name)}">${['normal', 'shadow', 'purified'].map(o => `<option value="${o}" ${o === r.e.origin ? 'selected' : ''}>${cap1(o)}</option>`).join('')}</select>
+      <select class="mini origin-${r.raw.origin}" data-origin="${esc(r.e.uid)}" aria-label="Origin of ${esc(r.p.name)}">${['normal', 'shadow', 'purified'].map(o => `<option value="${o}" ${o === r.raw.origin ? 'selected' : ''}>${cap1(o)}</option>`).join('')}</select>
+      ${r.raw.origin === 'shadow' ? `<span class="seg sm purify" role="radiogroup" aria-label="Rank ${esc(r.p.name)} as" data-purify="${esc(r.e.uid)}">${[['', 'As shadow'], ['1', 'As purified']].map(([v, t]) => `<button type="button" role="radio" data-v="${v}" aria-checked="${!!v === !!r.raw.purify}">${t}</button>`).join('')}</span>` : ''}
       <span class="spacer"></span>
-      <span class="mon-meta"><b>${r.e.iv.join('/')}</b> · Lv ${LV[r.e.lvIdx]} · CP ${r.cp}</span>
+      <span class="mon-meta"><b>${r.e.iv.join('/')}</b> · Lv ${LV[r.e.lvIdx]} · CP ${r.cp}${r.e !== r.raw ? `<span class="was">shadow ${r.raw.iv.join('/')} · Lv ${LV[r.raw.lvIdx]}</span>` : ''}</span>
       <button class="btn small" data-del="${esc(r.e.uid)}" aria-label="Remove ${esc(r.p.name)}">Remove</button>
     </div>
     <div class="mon-raid">${raid}</div>
@@ -872,7 +878,7 @@ function renderBox() {
   out.innerHTML = backupBanner() + top6Panel(rows, filterDesc()) + (rows.length
     ? `<div class="mon-list">${rows.map(r => monCard(r, labels.get(r.e.uid) || [])).join('')}</div>
       <p class="fine">Tap a name to open it in Check. Raid numbers are for the best final evolution (→) and its Megas: now · at Lv${settings.lvMaster} with its IVs · Pokébase max IVs at Lv40 (Lv${settings.lvMaster}).
-      "Best" = no moveset picked yet. Raid labels rank this box against itself: each Pokémon as its best final evolution with its own IVs at Lv${settings.lvMaster}. "Distinct" counts only the best of each species; "Ground-type Rock" labels are #1 only. Megas are ranked only with Megas (top 3).
+      "Best" = no moveset picked yet. Raid labels rank this box against itself per charged-move type: each Pokémon as its best final evolution with its own IVs at Lv${settings.lvMaster}. "Distinct" counts only the best of each species; "Fire/Flying with Fire" = #1 among that exact type pair. Megas are ranked only with Megas (top 3). Shadows can be ranked as purified with their switch (+2 IVs, Lv 25+).
       League labels show only when a form it can become reaches your % (Settings).</p>`
     : `<div class="panel empty"><strong>Nothing matches</strong><span>Clear a type or name filter.</span></div>`);
   saveUi();
@@ -948,6 +954,15 @@ function bindBox() {
     saveBox(); renderBox();
   });
   $('#box-out').addEventListener('click', e => {
+    const pf = e.target.closest('[data-purify] button');
+    if (pf) {   // only a flag: the stored shadow IVs stay as they are
+      const entry = box().find(x => x.uid === pf.parentElement.dataset.purify); if (!entry) return;
+      const on = !!pf.dataset.v;
+      if (!!entry.purify === on) return;
+      if (on) entry.purify = true; else delete entry.purify;
+      saveBox(true); renderBox();
+      return;
+    }
     const go = e.target.closest('[data-goto]');
     if (go) {
       const el = document.getElementById(`mon-${go.dataset.goto}`); if (!el) return;
