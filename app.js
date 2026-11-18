@@ -161,7 +161,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable: keep in memory */ } },
 };
 /* ivRaid / ivRaidShadow: Master League IV % a box Pokémon needs for a full raid label; ivPvp: league % for a PvP label */
-const settings = Object.assign({ lvCapped: 51, lvMaster: 50, metric: 'edps', minEdps: 11, minEr: 34, ivRaid: 90, ivRaidShadow: 80, ivPvp: 90 }, store.get('ivlab.settings', {}));
+const settings = Object.assign({ lvCapped: 51, lvMaster: 50, metric: 'edps', minEdps: 11, minEr: 34, ivRaid: 90, ivRaidShadow: 80, ivPvp: 90, lvRaid: 40 }, store.get('ivlab.settings', {}));
 const boxState = Object.assign({ users: { K: [], M: [], T: [] }, current: 'K' }, store.get('ivlab.box', {}));
 if (!boxState.users[boxState.current]) boxState.current = Object.keys(boxState.users)[0];
 const saveSettings = () => store.set('ivlab.settings', settings);
@@ -174,8 +174,9 @@ const box = () => boxState.users[boxState.current];
 
 const check = Object.assign({ id: 'charizard', origin: 'normal', iv: [12, 12, 15], lvIdx: li(25), view: 'as-is' }, store.get('ivlab.check', {}));
 if (!POKE.has(check.id)) check.id = 'charizard';
-const ui = Object.assign({ rankId: 'medicham', rankLeague: 'great', rankFloor: 0, raidType: '', raidLevel: 40, boxSort: 'raid-hi', boxTypes: [], boxTypeMode: 'and', boxMove: '' }, store.get('ivlab.ui', {}));
+const ui = Object.assign({ rankId: 'medicham', rankLeague: 'great', rankFloor: 0, raidType: '', raidLevel: 40, braidType: '', boxSort: 'raid-at', boxTypes: [], boxTypeMode: 'and', boxMove: '' }, store.get('ivlab.ui', {}));
 if (!POKE.has(ui.rankId)) ui.rankId = D.pokemon.find(p => !p.mega).id;
+if (!ui.sortAt) { if (ui.boxSort === 'raid-hi') ui.boxSort = 'raid-at'; ui.sortAt = 1; }   // raids compare at Lv40 now
 if ('boxType' in ui) { ui.boxMove = ui.boxMove || ui.boxType; delete ui.boxType; }   // old single filter was the move type
 const saveUi = () => { store.set('ivlab.ui', ui); store.set('ivlab.check', check); };
 
@@ -551,10 +552,79 @@ function bindRaids() {
   $('#raid-search').addEventListener('input', () => { raidShown = 50; renderRaids(); });
 }
 
+/* ================= BOX RAIDS ================= */
+/* Candy per power-up by level (stardust comes from dustCost). Shadow +20%, purified −10%, rounded up. */
+const candyAt = lv => lv < 11 ? 1 : lv < 21 ? 2 : lv < 26 ? 3 : lv < 31 ? 4 : lv < 33 ? 6 : lv < 35 ? 8 : lv < 37 ? 10 : lv < 39 ? 12 : 15;
+function powerCost(from, to, origin) {
+  const k = origin === 'shadow' ? 1.2 : origin === 'purified' ? 0.9 : 1, end = Math.min(to, li(40));
+  let candy = 0;
+  for (let i = from; i < end; i++) candy += Math.ceil(candyAt(LV[i]) * k - 1e-9);
+  return { dust: end > from ? dustCost(from, end, origin) : 0, candy };
+}
+let braidShown = 50;
+/* Like Raids, but only this box's Pokémon: each as its final evolutions (and their Megas) with its own IVs at Lv40. */
+function renderBoxRaids() {
+  typeFilter($('#braid-types'), ui.braidType, t => { ui.braidType = t; braidShown = 50; renderBoxRaids(); });
+  $('#braid-user').textContent = boxState.current;
+  const megaOk = $('#braid-mega').checked, bestOnly = $('#braid-best').checked, lowOk = $('#braid-low').checked;
+  const q = $('#braid-search').value.trim(), to = li(settings.lvRaid);
+  let rows = [];
+  for (const raw of box()) {
+    const p = POKE.get(raw.id); if (!p) continue;
+    const e = effEntry(raw, p);
+    for (const F of finalsOf(p)) for (const S of [F, ...(megaOk ? megasOf(F) : [])]) {
+      if (q && !nameMatch(p, q) && !nameMatch(S, q)) continue;
+      let ms = entryMoves(e, S);
+      if (ui.braidType) ms = ms.filter(m => m.chargedType === ui.braidType);
+      if (!ms.length) continue;
+      const f = asForm(e, S);
+      const ml = pctOf(leagueTable(S.mega ? megaBase(S) || S : S, MASTER), ivKey(f.iv));
+      const need = e.origin === 'shadow' && !S.mega ? settings.ivRaidShadow : settings.ivRaid;
+      if (!(ml >= need) && !lowOk) continue;
+      const origin = S.mega && e.origin === 'shadow' ? 'purified' : e.origin;
+      const scA = raidScale(S, f.iv, atIdx(f.lv)), scH = raidScale(S, f.iv, Math.max(f.lv, hiIdx()));
+      const base = { e, raw, p, S, f, origin, ok: ml >= need, ml, need, cost: powerCost(f.lv, to, origin) };
+      let list = ms.map(m => ({ ...base, m, v: scaled(m, scA), h: scaled(m, scH) }));
+      if (bestOnly) list = [list.reduce((a, b) => metricOf(b.v) > metricOf(a.v) ? b : a)];
+      rows.push(...list);
+    }
+  }
+  rows.sort((a, b) => metricOf(b.v) - metricOf(a.v));
+  const shown = rows.slice(0, braidShown), lvA = settings.lvRaid, lvH = settings.lvMaster;
+  const costText = r => {
+    const extra = [r.S.mega ? 'Mega Energy' : r.S.id !== r.p.id ? 'evolve' : '', r.raw.origin === 'shadow' && r.origin === 'purified' ? 'purify' : ''].filter(Boolean).join(' + ');
+    const c = r.cost.dust ? `To Lv${lvA}: <b>${fmtInt(r.cost.dust)}</b> dust · <b>${r.cost.candy}</b> candy` : `Lv${LV[r.f.lv]}, no power-up needed`;
+    return `<span class="cost">${c}${extra ? ` <span class="fine">+ ${extra}</span>` : ''}</span>`;
+  };
+  $('#braid-out').innerHTML = rows.length ? `<div class="table-wrap"><table>
+    <thead><tr><th class="num">#</th><th>Pokémon · moveset · cost</th><th class="num">eDPS<span class="th-sub">Lv${lvA} (${lvH})</span></th><th class="num">ER<span class="th-sub">Lv${lvA} (${lvH})</span></th><th class="num opt">DPS</th></tr></thead>
+    <tbody>${shown.map((r, i) => `<tr class="${r.ok ? '' : 'dim'}">
+      <td class="num">${i + 1}</td>
+      <td class="wrap"><span class="name-cell">${pic(r.S)}${originBadge(r.origin)}<b>${esc(r.S.name)}</b></span>
+        <span class="fine sub">${r.S.id !== r.p.id ? `from ${esc(r.p.name)} · ` : ''}${r.f.iv.join('/')} · Lv ${LV[r.f.lv]}${r.raw !== r.e || r.S.mega && r.raw.origin === 'shadow' ? ` <span class="was">(shadow ${r.raw.iv.join('/')})</span>` : ''}${r.ok ? '' : ` · Master League ${fmt(r.ml, 0)}%, under ${r.need}%`}</span>
+        <span class="mv-line fine-mv">${moveLabel(r.m.fast, r.m.fastStar)} ${typeChip(r.m.fastType, true)} · ${moveLabel(r.m.charged, r.m.chargedStar)} ${typeChip(r.m.chargedType, true)}</span>
+        ${costText(r)}</td>
+      ${['edps', 'er'].map(k => `<td class="num stack${settings.metric === k ? ' strong' : ''}"><span class="big">${fmt(r.v[k], 2)}</span><span class="later">(${fmt(r.h[k], 2)})</span></td>`).join('')}
+      <td class="num opt">${fmt(r.v.dps, 2)}</td></tr>`).join('')}</tbody></table>
+    ${rows.length > braidShown ? `<div class="more-row"><button class="btn small" id="braid-more">Show 50 more (${rows.length - braidShown} left)</button></div>` : ''}</div>
+    <p class="fine">Each Pokémon in ${esc(boxState.current)}'s box as its final evolutions${megaOk ? ' and their Megas' : ''}, with its own IVs powered up to Lv${lvA} (or its level, if higher); Lv${lvH} in brackets.
+      Only Pokémon whose Master League IV % reaches your Settings (${settings.ivRaid}%, shadow ${settings.ivRaidShadow}%) unless "Below IV %" is on. A shadow Mega is counted as purified.
+      Cost = stardust and candy to power up from its level to Lv${lvA} (shadow +20%, purified −10%; Lucky, evolution, purification and Mega Energy not included).</p>`
+    : `<div class="panel empty"><strong>${box().length ? 'Nothing matches' : `${esc(boxState.current)}'s box is empty`}</strong><span>${box().length ? 'Loosen the filters, or turn on "Below IV %".' : 'Import or save some Pokémon first.'}</span></div>`;
+  $('#braid-more')?.addEventListener('click', () => { braidShown += 50; renderBoxRaids(); });
+  saveUi();
+}
+function bindBoxRaids() {
+  ['#braid-mega', '#braid-best', '#braid-low'].forEach(s => $(s).addEventListener('change', () => { braidShown = 50; renderBoxRaids(); }));
+  $('#braid-search').addEventListener('input', () => { braidShown = 50; renderBoxRaids(); });
+}
+
 /* ================= BOX ================= */
 const RAID_TOP = 6, RAID_TOP_MEGA = 3;
 const cap1 = s => s[0].toUpperCase() + s.slice(1);
 const hiIdx = () => li(settings.lvMaster);
+/* raid comparison level: powered up to Lv40 (Settings), or its current level if already higher */
+const atIdx = lv => Math.max(lv, li(settings.lvRaid));
 const lgShort = L => L.name.replace(' League', '').replace(' Cup', '');
 const MASTER = LEAGUES.find(L => L.key === 'master');
 
@@ -582,7 +652,7 @@ const megasOf = S => MEGAS.get(S.id) || [];
 const megaBase = M => D.pokemon.find(b => megasOf(b).includes(M));
 const megaName = M => (M.name.match(/\(([^)]*)\)/) || [, 'Mega'])[1];
 
-/* Raid labels rank the Pokémon in this box against each other, each with its own IVs at LvMax, per charged-move type
+/* Raid labels rank the Pokémon in this box against each other, each with its own IVs powered up to Lv40 (or its current level if higher), per charged-move type
    (one value per Pokémon: its best final evolution; Megas go in their own pool). `cat` holds per move type x and per
    exact type pair + move type ('Fire/Flying>Fire'; Flying/Fire is the same pair); `dex` keeps the best per species and
    move type, for the distinct ranking (one per species: Shadow Mewtwo and Mewtwo count once). */
@@ -645,7 +715,7 @@ function raidForm(e, S) {
   if (!ms.length) return null;
   const f = asForm(e, S);
   const pick = ms.reduce((a, m) => metricOf(m) > metricOf(a) ? m : a);
-  return { S, pick, now: scaled(pick, raidScale(S, f.iv, f.lv)), hi: scaled(pick, raidScale(S, f.iv, Math.max(f.lv, hiIdx()))), ref: refValues(S, pick) };
+  return { S, pick, atLv: LV[atIdx(f.lv)], at: scaled(pick, raidScale(S, f.iv, atIdx(f.lv))), now: scaled(pick, raidScale(S, f.iv, f.lv)), hi: scaled(pick, raidScale(S, f.iv, Math.max(f.lv, hiIdx()))), ref: refValues(S, pick) };
 }
 
 /* A shadow with its Purified switch on is ranked as purified: +2 IVs (max 15), Lv 25 at least, purified moves.
@@ -662,9 +732,9 @@ function evalEntry(raw) {
   if (!p) return null;
   const e = effEntry(raw, p);
   const finals = finalsOf(p);
-  const opts = finals.map(S => raidForm(e, S)).filter(Boolean).sort((a, b) => metricOf(b.hi) - metricOf(a.hi));
+  const opts = finals.map(S => raidForm(e, S)).filter(Boolean).sort((a, b) => metricOf(b.at) - metricOf(a.at));
   const main = opts[0] || null;
-  const megas = main ? megasOf(main.S).map(M => raidForm(e, M)).filter(Boolean).sort((a, b) => metricOf(b.hi) - metricOf(a.hi)) : [];
+  const megas = main ? megasOf(main.S).map(M => raidForm(e, M)).filter(Boolean).sort((a, b) => metricOf(b.at) - metricOf(a.at)) : [];
   return { e, raw, p, main, megas, nFinals: finals.length, best: !e.charged, hasMove: !ui.boxMove || !!main, cp: cpAt(p, e.iv, e.lvIdx) };
 }
 /* best league % it can reach in L (any form it can still become that fits under the cap at its level) — for sorting */
@@ -681,7 +751,7 @@ function bestLeaguePct(r, L) {
 }
 
 /* Labels for every Pokémon in the box.
-   Raid, per charged-move type: as its final evolution, with its own IVs at LvMax, it is in the top 6 of this box for
+   Raid, per charged-move type: as its final evolution, with its own IVs at Lv40 (or its level, if higher), it is in the top 6 of this box for
    that move type, or top 6 among distinct species (best of each species only), or #1 among Pokémon with exactly its
    type pair (Fire/Flying with Fire). Its Megas are ranked among the box's Megas only (top 3, top 3 distinct, #1 pair). Full label when the Master League IV % is at least ivRaid (ivRaidShadow for shadows; a Mega
    counts the purified IVs); otherwise a dim label with a note.
@@ -697,9 +767,9 @@ function boxLabels(rows) {
   const lines = new Map(rows.map(r => [r.e.uid, forwardLine(r.p)]));
   const canBe = (r, S) => lines.get(r.e.uid).some(x => S.mega ? megasOf(x).includes(S) : x.id === S.id);
   const mineCache = new Map();
-  const mine = (r, S) => {   // this Pokémon's own values as form S, powered up to the max level
+  const mine = (r, S) => {   // this Pokémon's own values as form S, powered up to Lv40 (or its level, if higher)
     const k = r.e.uid + '|' + S.id;
-    if (!mineCache.has(k)) { const f = asForm(r.e, S); mineCache.set(k, catValues(S, entryMoves(r.e, S), raidScale(S, f.iv, Math.max(f.lv, hiIdx())))); }
+    if (!mineCache.has(k)) { const f = asForm(r.e, S); mineCache.set(k, catValues(S, entryMoves(r.e, S), raidScale(S, f.iv, atIdx(f.lv)))); }
     return mineCache.get(k);
   };
   const { reg, meg } = boxPools(rows, mine, lines);
@@ -799,11 +869,12 @@ function monCard(r, labels) {
     <div class="mon-nums">
       <span></span><span class="h">eDPS</span><span class="h">ER</span>
       <span class="h">Now</span>${num('edps', m.now)}${num('er', m.now)}
+      <span class="h" title="Powered up to Lv${settings.lvRaid}; labels and the Top 6 compare this">Lv${m.atLv}</span>${num('edps', m.at)}${num('er', m.at)}
       <span class="h">Lv${settings.lvMaster}</span>${num('edps', m.hi)}${num('er', m.hi)}
       <span class="h" title="Pokébase Lv40 15/15/15, Lv${settings.lvMaster} 15/15/15 in brackets">Max IV</span><span class="ref">${fmt(m.ref.edps, 1)} (${fmt(m.ref.edpsHi, 1)})</span><span class="ref">${fmt(m.ref.er, 1)} (${fmt(m.ref.erHi, 1)})</span>
     </div>
     ${r.megas.map(x => `<div class="mega-row"><span class="badge mega">${esc(megaName(x.S))}</span><span class="fine">${mvText(x.pick)}${r.e.origin === 'shadow' ? ' · if purified' : ''}</span>
-      <span class="mega-val">Lv${settings.lvMaster} <b class="${settings.metric === 'edps' ? 'key' : ''}">${fmt(x.hi.edps, 2)}</b> eDPS · <b class="${settings.metric === 'er' ? 'key' : ''}">${fmt(x.hi.er, 2)}</b> ER</span></div>`).join('')}`;
+      <span class="mega-val">Lv${x.atLv} <b class="${settings.metric === 'edps' ? 'key' : ''}">${fmt(x.at.edps, 2)}</b> eDPS · <b class="${settings.metric === 'er' ? 'key' : ''}">${fmt(x.at.er, 2)}</b> ER <span class="later">(Lv${settings.lvMaster} ${fmt(metricOf(x.hi), 1)})</span></span></div>`).join('')}`;
   return `<article class="mon ${glow}" id="mon-${esc(r.e.uid)}">
     <div class="mon-head">
       <button type="button" class="link-btn" data-open="${esc(r.e.uid)}" title="Open in Check">${pic(r.p)}<span class="mon-name">${esc(r.p.name)}</span></button>
@@ -819,17 +890,17 @@ function monCard(r, labels) {
   </article>`;
 }
 
-/* Top 6 of the filtered box by the raid metric at the max level, each as its best final evolution with its own IVs. */
+/* Top 6 of the filtered box by the raid metric at Lv40 (or its level, if higher), each as its best final evolution with its own IVs. */
 function top6Panel(rows, desc) {
-  const top = rows.filter(r => r.main).sort((a, b) => metricOf(b.main.hi) - metricOf(a.main.hi)).slice(0, 6);
+  const top = rows.filter(r => r.main).sort((a, b) => metricOf(b.main.at) - metricOf(a.main.at)).slice(0, 6);
   if (!top.length) return '';
   return `<section class="panel top6" aria-labelledby="h-top6">
-    <div class="title-row"><h2 id="h-top6" class="panel-title">Top 6 at Lv${settings.lvMaster} · ${metricName()}</h2><span class="fine">${desc}</span></div>
+    <div class="title-row"><h2 id="h-top6" class="panel-title">Top 6 at Lv${settings.lvRaid} · ${metricName()}</h2><span class="fine">${desc}</span></div>
     <ol class="top6-list">${top.map((r, i) => `<li><button type="button" class="top6-item" data-goto="${esc(r.e.uid)}">
       <span class="top6-rank">${i + 1}</span>${pic(r.main.S)}
       <span class="top6-main"><span class="top6-name">${esc(r.main.S.name)} ${originBadge(r.e.origin)}</span>
         <span class="fine">${r.main.S !== r.p ? `from ${esc(r.p.name)} · ` : ''}${r.e.iv.join('/')} · Lv ${LV[r.e.lvIdx]} · ${mvText(r.main.pick)}</span></span>
-      <span class="top6-val"><b>${fmt(metricOf(r.main.hi), 2)}</b><span class="fine">now ${fmt(metricOf(r.main.now), 2)}</span></span>
+      <span class="top6-val"><b>${fmt(metricOf(r.main.at), 2)}</b><span class="fine">now ${fmt(metricOf(r.main.now), 2)}</span></span>
     </button></li>`).join('')}</ol>
   </section>`;
 }
@@ -871,14 +942,14 @@ function renderBox() {
     && (!pt.length || (ui.boxTypeMode === 'and' ? pt.every(t => r.p.types.includes(t)) : pt.some(t => r.p.types.includes(t)))));
   const s = ui.boxSort, L = LEAGUES.find(x => x.key === s);
   const raidKey = k => r => r.main ? metricOf(r.main[k]) : -1;
-  const key = s === 'raid-hi' ? raidKey('hi') : s === 'raid-now' ? raidKey('now') : s === 'raid-ref' ? raidKey('ref')
-    : s === 'added' ? r => r.e.added : s === 'dex' ? r => -r.p.dex * 1e5 + r.cp : s === 'labels' ? r => labelScore(labels.get(r.e.uid)) * 1000 + raidKey('hi')(r) : r => bestLeaguePct(r, L);
+  const key = s === 'raid-at' ? raidKey('at') : s === 'raid-hi' ? raidKey('hi') : s === 'raid-now' ? raidKey('now') : s === 'raid-ref' ? raidKey('ref')
+    : s === 'added' ? r => r.e.added : s === 'dex' ? r => -r.p.dex * 1e5 + r.cp : s === 'labels' ? r => labelScore(labels.get(r.e.uid)) * 1000 + raidKey('at')(r) : r => bestLeaguePct(r, L);
   const keyed = rows.map(r => [key(r), r]).sort((a, b) => b[0] - a[0]);
   rows = keyed.map(x => x[1]);
   out.innerHTML = backupBanner() + top6Panel(rows, filterDesc()) + (rows.length
     ? `<div class="mon-list">${rows.map(r => monCard(r, labels.get(r.e.uid) || [])).join('')}</div>
-      <p class="fine">Tap a name to open it in Check. Raid numbers are for the best final evolution (→) and its Megas: now · at Lv${settings.lvMaster} with its IVs · Pokébase max IVs at Lv40 (Lv${settings.lvMaster}).
-      "Best" = no moveset picked yet. Raid labels rank this box against itself per charged-move type: each Pokémon as its best final evolution with its own IVs at Lv${settings.lvMaster}. "Distinct" counts only the best of each species; "Fire/Flying with Fire" = #1 among that exact type pair. Megas are ranked only with Megas (top 3). Shadows can be ranked as purified with their switch (+2 IVs, Lv 25+).
+      <p class="fine">Tap a name to open it in Check. Raid numbers are for the best final evolution (→) and its Megas: now · powered up to Lv${settings.lvRaid} (or its level, if higher) · Lv${settings.lvMaster} · Pokébase max IVs at Lv40 (Lv${settings.lvMaster}).
+      "Best" = no moveset picked yet. Raid labels rank this box against itself per charged-move type: each Pokémon as its best final evolution with its own IVs at Lv${settings.lvRaid} (or its level, if higher; the IV % check uses Lv${settings.lvMaster}). "Distinct" counts only the best of each species; "Fire/Flying with Fire" = #1 among that exact type pair. Megas are ranked only with Megas (top 3). Shadows can be ranked as purified with their switch (+2 IVs, Lv 25+).
       League labels show only when a form it can become reaches your % (Settings).</p>`
     : `<div class="panel empty"><strong>Nothing matches</strong><span>Clear a type or name filter.</span></div>`);
   saveUi();
@@ -1008,8 +1079,8 @@ function renderUsers() {
   $('#user-select').innerHTML = Object.keys(boxState.users).map(u => `<option ${u === boxState.current ? 'selected' : ''}>${esc(u)}</option>`).join('');
   renderBoxCount();
 }
-const VIEWS = ['check', 'rankings', 'raids', 'box', 'import'];
-const RENDER = { check: renderCheck, rankings: renderRankings, raids: renderRaids, box: renderBox, import: () => window.renderImport && window.renderImport() };
+const VIEWS = ['check', 'rankings', 'raids', 'box', 'boxraids', 'import'];
+const RENDER = { check: renderCheck, rankings: renderRankings, raids: renderRaids, box: renderBox, boxraids: renderBoxRaids, import: () => window.renderImport && window.renderImport() };
 function route() {
   const v = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'check';
   for (const x of VIEWS) $(`#view-${x}`).hidden = x !== v;
@@ -1020,7 +1091,7 @@ function rerenderAll() { tableCache.clear(); labelsCache.key = ''; route(); }
 function bindShell() {
   $('#settings-btn').addEventListener('click', e => { const s = $('#settings'); s.hidden = !s.hidden; e.currentTarget.setAttribute('aria-expanded', String(!s.hidden)); });
   const seg = (id, key, num) => { setSeg($(id), settings[key]); bindSeg($(id), v => { settings[key] = num ? +v : v; setSeg($(id), settings[key]); saveSettings(); fillLevelSelect(); $('#check-lv').value = check.lvIdx; rerenderAll(); }); };
-  seg('#set-lv-capped', 'lvCapped', true); seg('#set-lv-master', 'lvMaster', true); seg('#set-metric', 'metric', false);
+  seg('#set-lv-capped', 'lvCapped', true); seg('#set-lv-master', 'lvMaster', true); seg('#set-metric', 'metric', false); seg('#set-lv-raid', 'lvRaid', true);
   for (const [id, key] of [['#set-min-edps', 'minEdps'], ['#set-min-er', 'minEr'], ['#set-iv-raid', 'ivRaid'], ['#set-iv-raid-sh', 'ivRaidShadow'], ['#set-iv-pvp', 'ivPvp']]) {
     $(id).value = settings[key];
     $(id).addEventListener('change', e => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v >= 0 && (id.startsWith('#set-min') || v <= 100)) { settings[key] = v; saveSettings(); route(); } else e.target.value = settings[key]; });
@@ -1054,6 +1125,6 @@ async function setupApp() {
   }
 }
 
-bindShell(); bindCheck(); bindRankings(); bindRaids(); bindBox(); renderUsers(); setupApp();
+bindShell(); bindCheck(); bindRankings(); bindRaids(); bindBox(); bindBoxRaids(); renderUsers(); setupApp();
 // import.js loads after this file; route once it has registered its view
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', route); else setTimeout(route);

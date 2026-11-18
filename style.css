@@ -410,3 +410,8 @@ td.wrap { white-space: normal; min-width: 130px; }
 
 .combo-list .ja { color: var(--ink-2); font-size: 12px; margin-left: 4px; }
 .mon-meta .was { display: block; font-size: 11px; color: var(--ink-2); text-align: right; }
+tr.dim > td { opacity: .55; }
+td .cost { display: block; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+td .cost b { color: var(--ink); font-weight: 600; }
+td .was { color: var(--ink-2); }
+td .sub { display: block; }

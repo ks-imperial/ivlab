@@ -30,6 +30,7 @@
       <a href="#rankings" data-tab="rankings">Rankings</a>
       <a href="#raids" data-tab="raids">Raids</a>
       <a href="#box" data-tab="box">Box <span class="count" id="box-count"></span></a>
+      <a href="#boxraids" data-tab="boxraids">Box raids</a>
       <a href="#import" data-tab="import">Import</a>
     </nav>
     <div class="top-tools">
@@ -52,6 +53,12 @@
         <span class="label">Max level, Master &amp; raids</span>
         <div class="seg" id="set-lv-master" role="radiogroup" aria-label="Max level in Master League">
           <button data-v="50">50</button><button data-v="51">51 Best Buddy</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Box raid ranking level</span>
+        <div class="seg" id="set-lv-raid" role="radiogroup" aria-label="Level the box raid rankings compare at">
+          <button data-v="40">Lv40</button><button data-v="50">Lv50</button>
         </div>
       </div>
       <div class="field">
@@ -227,6 +234,7 @@
         <div class="field">
           <label class="label" for="box-sort">Sort by</label>
           <select id="box-sort">
+            <option value="raid-at">Raid, at Lv40 with its IVs</option>
             <option value="raid-hi">Raid, at Lv50 with its IVs</option>
             <option value="raid-now">Raid, current level</option>
             <option value="labels">Labels first</option>
@@ -250,6 +258,29 @@
   </section>
 
   <!-- IMPORT -->
+  <!-- BOX RAIDS -->
+  <section class="view" id="view-boxraids" aria-labelledby="h-braid" hidden>
+    <div class="panel toolbar">
+      <h1 id="h-braid" class="panel-title">Box raids · <span id="braid-user"></span></h1>
+      <div class="type-filter" id="braid-types" role="group" aria-label="Charged move type"></div>
+      <div class="toolbar-row">
+        <div class="field">
+          <span class="label">Show</span>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="braid-mega" checked> Mega</label>
+            <label class="toggle"><input type="checkbox" id="braid-best" checked> Best moveset only</label>
+            <label class="toggle"><input type="checkbox" id="braid-low"> Below IV %</label>
+          </div>
+        </div>
+        <div class="field grow">
+          <label class="label" for="braid-search">Filter by name</label>
+          <input id="braid-search" placeholder="e.g. mewtwo / ミュウツー">
+        </div>
+      </div>
+    </div>
+    <div id="braid-out"></div>
+  </section>
+
   <section class="view" id="view-import" aria-labelledby="h-import" hidden>
     <div class="panel toolbar">
       <div class="title-row">
